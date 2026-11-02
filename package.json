@@ -1,6 +1,6 @@
 {
   "name": "vibespace-cloak-browser",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "CloakBrowser as a browser engine plugin for VibeSpace",
   "license": "MIT",

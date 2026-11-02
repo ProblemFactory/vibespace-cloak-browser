@@ -1,8 +1,8 @@
 {
   "id": "vibespace.cloak-browser",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "label": "CloakBrowser",
-  "description": "CloakBrowser as a browser engine for VibeSpace's agent browser: a Chromium build that sites are less likely to block as a bot. VibeSpace downloads the vendor's free build (pinned by its sha256) and keeps it inside an allowlisting proxy: it reaches only the sites you list. Not affiliated with CloakHQ: the browser is theirs, under https://github.com/CloakHQ/CloakBrowser/blob/main/BINARY-LICENSE.md",
+  "description": "CloakBrowser as a browser engine for VibeSpace's agent browser: a Chromium build that sites are less likely to block as a bot. You install CloakBrowser from its maker and paste its program file into this plugin's settings; VibeSpace checks that program, measures its version and runs it inside an allowlisting proxy: it reaches only the sites you list. Not affiliated with CloakHQ: the browser is theirs, under https://github.com/CloakHQ/CloakBrowser/blob/main/BINARY-LICENSE.md",
   "engines": { "vibespace": "2.369.371" },
   "client": "none",
   "server": true,
@@ -10,6 +10,13 @@
     "routes": true,
     "browserEngine": true,
     "settings": [
+      {
+        "key": "executablePath",
+        "type": "string",
+        "default": "",
+        "label": "Program file",
+        "description": "The CloakBrowser program (its chrome file) — required. Install CloakBrowser the way its maker says, then paste the path here: \"cloakbrowser install\" prints it. VibeSpace checks that the file exists and runs, measures its version, and starts it inside its allowlisting proxy."
+      },
       {
         "key": "egressAllowlist",
         "type": "string",

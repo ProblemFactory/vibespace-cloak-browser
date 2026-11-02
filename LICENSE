@@ -22,8 +22,8 @@ SOFTWARE.
 
 ---
 
-This license covers the code in this repository only. The CloakBrowser browser
-binary that VibeSpace downloads when you use this plugin is NOT part of this
-repository and is not covered by this license: it is CloakHQ's, distributed by
-CloakHQ under its own CloakBrowser Binary License
+This license covers the code in this repository only. CloakBrowser itself is
+NOT part of this repository, and neither this plugin nor VibeSpace downloads
+it: you obtain it from its maker, CloakHQ, and use it under CloakHQ's own
+CloakBrowser Binary License
 (https://github.com/CloakHQ/CloakBrowser/blob/main/BINARY-LICENSE.md).

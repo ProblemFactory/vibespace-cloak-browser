@@ -3,7 +3,7 @@
 // (capabilities.server = {} adds nothing: no extra path, no --allow-child-process), the four VIBESPACE_PLUGIN_* names,
 // `serialization: 'advanced'`, stdio ignore/pipe/pipe/ipc; waits for {t:'hello'}; asks routes with {t:'route', id, …}.
 import assert from 'node:assert/strict';
-import { fork } from 'node:child_process';
+import { fork, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,27 +12,46 @@ import { fileURLToPath } from 'node:url';
 export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const ID = 'vibespace.cloak-browser';
 /** The files of the plugin as it installs (the repository's own package). */
-export const PACKAGE_FILES = ['vibespace-plugin.json', 'server.js', 'lib/engine.js', 'kernel.json'];
+export const PACKAGE_FILES = ['vibespace-plugin.json', 'server.js', 'lib/engine.js'];
 
 export function permissionArgs(pluginDir, dataDir) {
   return ['--permission', `--allow-fs-read=${pluginDir}`, `--allow-fs-read=${dataDir}`, `--allow-fs-write=${dataDir}`];
 }
 
-/** A scratch root: `<root>/plugins/<id>/` (a copy of the package, so a test may plant a change) + `<root>/state/<id>/`. */
+/**
+ * A scratch root: `<root>/plugins/<id>/` (a copy of the package, so a test may plant a change) + `<root>/state/<id>/` +
+ * `<root>/elsewhere/chrome` — a stand-in for the program you installed yourself: a real executable file OUTSIDE both
+ * folders (where the vendor's installer puts it), the path VibeSpace hands in.
+ */
 export function scratch(t, { plant = null } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cloak-plugin-test-'));
   const pluginDir = path.join(root, 'plugins', ID), dataDir = path.join(root, 'state', ID);
   for (const f of PACKAGE_FILES) { fs.mkdirSync(path.dirname(path.join(pluginDir, f)), { recursive: true }); fs.copyFileSync(path.join(REPO, f), path.join(pluginDir, f)); }
   fs.mkdirSync(dataDir, { recursive: true });
+  const program = path.join(root, 'elsewhere', 'chrome');
+  fs.mkdirSync(path.dirname(program), { recursive: true });
+  fs.writeFileSync(program, '#!/bin/sh\necho "Chromium 146.0.7680.177"\n', { mode: 0o755 });
   if (plant) plant(pluginDir);
   if (t && typeof t.after === 'function') t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  return { root, pluginDir, dataDir, kernelPath: path.join(dataDir, 'kernel', 'linux-x64', 'chrome') };
+  return { root, pluginDir, dataDir, program };
 }
 
-/** Start the plugin's server. `sandbox: false` = the same fork WITHOUT the permission flags (a control). */
-export async function start({ pluginDir, dataDir, sandbox = true, helloMs = 5000 } = {}) {
+/** strace on PATH (the tracing legs skip without it, saying so). */
+export const STRACE = (() => { try { return spawnSync('strace', ['-V'], { stdio: 'ignore' }).status === 0; } catch { return false; } })();
+
+/**
+ * Start the plugin's server. `sandbox: false` = the same process WITHOUT the permission flags (a control). `trace: <file>` =
+ * the same process under `strace -f` (every syscall that names a path, written to <file>; the tracer kills its tracee if it
+ * is itself stopped).
+ */
+export async function start({ pluginDir, dataDir, sandbox = true, trace = null, helloMs = 5000 } = {}) {
   const env = { PATH: process.env.PATH || '/usr/bin:/bin', VIBESPACE_PLUGIN_ID: ID, VIBESPACE_PLUGIN_DIR: pluginDir, VIBESPACE_PLUGIN_DATA: dataDir, VIBESPACE_PLUGIN_API_VERSION: '1' };
-  const child = fork(path.join(pluginDir, 'server.js'), [], { cwd: pluginDir, env, execArgv: sandbox ? permissionArgs(pluginDir, dataDir) : [], serialization: 'advanced', stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+  const flags = sandbox ? permissionArgs(pluginDir, dataDir) : [];
+  const server = path.join(pluginDir, 'server.js');
+  const opts = { cwd: pluginDir, env, serialization: 'advanced', stdio: ['ignore', 'pipe', 'pipe', 'ipc'] };
+  const child = trace
+    ? spawn('strace', ['-f', '-qq', '--kill-on-exit', '-s', '4096', '-e', 'trace=%file', '-o', trace, process.execPath, ...flags, server], opts)
+    : fork(server, [], { ...opts, execArgv: flags });
   let stderr = '', nextId = 1, hello = null;
   const pending = new Map();
   child.stderr.on('data', (d) => { stderr += d; });
@@ -70,19 +89,6 @@ export async function start({ pluginDir, dataDir, sandbox = true, helloMs = 5000
   return api;
 }
 
-/** A stand-in kernel: a tiny program at the kernel's place + the receipt VibeSpace writes beside it at install. */
-export function placeKernel(kernelPath, { receipt = true, mode = 0o755, sha256 = null } = {}) {
-  fs.mkdirSync(path.dirname(kernelPath), { recursive: true });
-  fs.writeFileSync(kernelPath, '#!/bin/sh\necho "Chromium 146.0.7680.177"\n', { mode });
-  fs.chmodSync(kernelPath, mode);
-  const size = fs.statSync(kernelPath).size;
-  if (receipt) {
-    const pin = JSON.parse(fs.readFileSync(path.join(REPO, 'kernel.json'), 'utf8')).platforms['linux-x64'].sha256;
-    fs.writeFileSync(path.join(path.dirname(kernelPath), 'install-receipt.json'), JSON.stringify({ sha256: sha256 || pin, bytes: size, verifiedAt: 1793600000000, version: '146.0.7680.177' }));
-  }
-  return size;
-}
-
 /** The VibeSpace checkout the VibeSpace-side legs import its PURE contract (and its real loader) from — VIBESPACE_DIR. */
 export function vibespaceDir() {
   const d = process.env.VIBESPACE_DIR;
@@ -90,24 +96,27 @@ export function vibespaceDir() {
 }
 
 /**
- * THE HOST MODE (VIBESPACE_DIR legs). A VibeSpace that REFUSES this plugin — one that predates the engine features it
- * needs (the probe feature `egress-allowlist` with `surfaces` optional, `tar.gz` kernels) — is a FAILING leg, by name:
- * a suite that cannot tell «the host runs it» from «the host refuses it» proves nothing. CLOAK_EXPECT_HOST_REFUSES=1
- * declares such a host EXPECTED: then each refusal passes by name (after the leg proved it is exactly the one missing
- * rule), and a host that RUNS the plugin under that flag fails instead (the expectation is stale).
+ * THE HOST MODE (VIBESPACE_DIR legs). A VibeSpace that cannot run this plugin — one that predates the user-binary road
+ * (the reserved `executablePath` setting: VibeSpace judges and runs the program you name; without it, it looks for a
+ * kernel.json this plugin no longer carries) — is a FAILING leg, by name: a suite that cannot tell «the host runs it» from
+ * «the host refuses it» proves nothing. CLOAK_EXPECT_HOST_REFUSES=1 declares such a host EXPECTED: then each refusal passes
+ * by name (after the leg proved everything else of the plugin is accepted), and a host that RUNS the plugin under that flag
+ * fails instead (the expectation is stale).
  */
 export const EXPECT_HOST_REFUSES = process.env.CLOAK_EXPECT_HOST_REFUSES === '1';
 export function hostRefuses(t, what, why) {
-  if (!EXPECT_HOST_REFUSES) assert.fail(`THE HOST REFUSES THE PLUGIN — ${what}: ${why}. This VibeSpace predates the engine features the plugin needs (the probe feature egress-allowlist, tar.gz kernels): run the suite against one that has them, or set CLOAK_EXPECT_HOST_REFUSES=1 to accept this host by name`);
+  if (!EXPECT_HOST_REFUSES) assert.fail(`THE HOST REFUSES THE PLUGIN — ${what}: ${why}. This VibeSpace predates the user-binary road the plugin needs (the reserved executablePath setting): run the suite against one that has it, or set CLOAK_EXPECT_HOST_REFUSES=1 to accept this host by name`);
   t.diagnostic(`expected host refusal (CLOAK_EXPECT_HOST_REFUSES=1) — ${what}: ${why}`);
 }
 export function hostRuns(what) {
   if (EXPECT_HOST_REFUSES) assert.fail(`CLOAK_EXPECT_HOST_REFUSES=1, but this VibeSpace RUNS the plugin (${what}) — the expectation is stale: unset it`);
 }
 
-/** The consent a VibeSpace shows for this plugin: a server process + the browser engine, and — from the release with the
- *  engine features — the allowlisting-proxy line. Never a filesystem, child-process, network or client-code item. */
+/** The consent a VibeSpace shows for this plugin: a server process + the browser engine, and — from the releases with the
+ *  engine features — the allowlisting-proxy line and the «runs the program you name» line. Never a filesystem,
+ *  child-process, network or client-code item. */
+export const CONSENT_ITEMS = Object.freeze(['server-process', 'browser-engine', 'egress-allowlist', 'user-binary']);
 export function assertConsent(ids) {
   assert.ok(ids.includes('server-process') && ids.includes('browser-engine'), JSON.stringify(ids));
-  assert.deepEqual(ids.filter((i) => !['server-process', 'browser-engine', 'egress-allowlist'].includes(i)), [], `no other power: ${JSON.stringify(ids)}`);
+  assert.deepEqual(ids.filter((i) => !CONSENT_ITEMS.includes(i)), [], `no other power: ${JSON.stringify(ids)}`);
 }

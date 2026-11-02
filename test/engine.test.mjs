@@ -1,39 +1,41 @@
-// THE PURE HALF (lib/engine.js) — the answers' shapes, the seed rule, the receipt reading.
+// THE PURE HALF (lib/engine.js) — the answers' shapes, the program path read by its shape only, the seed rule.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const E = require('../lib/engine.js');
-const kernel = require('../kernel.json');
 
-test('the probe answer: protocol 1, features exactly [egress-allowlist] (no surfaces), no kinds, version null (VibeSpace measures)', () => {
-  const a = E.probeAnswer({ binaryPath: '/s/kernel/linux-x64/chrome', installed: false, kernel });
-  assert.deepEqual(a.features, ['egress-allowlist']);
+const USER_PROGRAM = '/home/userW/.cloakbrowser/chromium-146.0.7680.177.5/chrome';
+
+test('the probe answer about a handed program: the path echoed, protocol 1, features exactly [egress-allowlist] (no surfaces), no kinds, no version of its own', () => {
+  const a = E.probeAnswer(E.programOf(USER_PROGRAM));
+  assert.deepEqual(a, { id: 'vibespace.cloak-browser', installed: true, executable: true, binaryPath: USER_PROGRAM, version: null, declaredVersion: null, protocol: 1, kinds: [], features: ['egress-allowlist'] });
   assert.ok(!a.features.includes('surfaces'));
-  assert.deepEqual(a.kinds, []);
-  assert.equal(a.protocol, 1);
-  assert.equal(a.version, null);
-  assert.equal(a.declaredVersion, '146.0.7680.177.5');
-  assert.equal(a.id, 'vibespace.cloak-browser');
-  assert.equal(a.installed, false);
-  assert.equal(a.executable, false);
-  assert.equal(a.integrity, null);
-  assert.equal(a.binaryPath, '/s/kernel/linux-x64/chrome');
+  assert.ok(!('integrity' in a), 'no receipt, no pin: nothing is downloaded');
 });
 
-test('executable is never claimed for a kernel that is not installed', () => {
-  assert.equal(E.probeAnswer({ installed: false, executable: true, kernel }).executable, false);
+test('the probe answer with nothing handed: no program, nothing claimed, no path invented', () => {
+  for (const v of [undefined, null, '']) {
+    const a = E.probeAnswer(E.programOf(v));
+    assert.equal(a.installed, false, String(v));
+    assert.equal(a.executable, false);
+    assert.ok(!('binaryPath' in a), 'the plugin has no program place of its own');
+  }
 });
 
-test('the receipt: verified = the program\'s size is the receipt\'s (VibeSpace\'s own reading); pinned = the archive this version pins', () => {
-  const pin = E.pinOf(kernel);
-  assert.equal(pin, '4a12bcde95fa1bb1beef2b41ab5e5c27c36be78e3be3d0dac8c64d705216670e');
-  const r = { sha256: pin, bytes: 465371408, verifiedAt: 1793600000000, version: '146.0.7680.177' };
-  assert.deepEqual(E.integrityOf(r, { size: 465371408, pin }), { verified: true, sha256: pin, verifiedAt: 1793600000000, pinned: true });
-  assert.equal(E.integrityOf(r, { size: 465371407, pin }).verified, false, 'a program that changed since it was verified');
-  assert.equal(E.integrityOf({ ...r, sha256: 'f'.repeat(64) }, { size: 465371408, pin }).pinned, false, 'a receipt for another archive');
-  assert.equal(E.integrityOf({ ...r, sha256: 'nope' }, { size: 465371408, pin }).verified, false);
-  assert.equal(E.integrityOf(null, { size: 1, pin }), null);
+test('programOf reads the handed path by its SHAPE only: one absolute path, ≤ 4096, no NUL / line break', () => {
+  assert.deepEqual(E.programOf(USER_PROGRAM), { ok: true, path: USER_PROGRAM });
+  assert.equal(E.programOf(undefined).code, 'none');
+  assert.equal(E.programOf('').code, 'none');
+  for (const v of [42, ['/x'], { path: '/x' }, true]) assert.equal(E.programOf(v).code, 'bad_binary_path', JSON.stringify(v));
+  for (const v of ['chrome', './chrome', '~/chrome', '/a\nb', '/a\rb', '/a\0b', '/' + 'x'.repeat(4096)]) {
+    const p = E.programOf(v);
+    assert.equal(p.code, 'bad_shape', JSON.stringify(v));
+    assert.equal(p.path, v, 'kept as it came: a probe echoes it, VibeSpace says why it cannot run');
+  }
+  assert.ok(E.programOf('/' + 'x'.repeat(4095)).ok, '4096 characters is the cap, not past it');
+  const bad = E.probeAnswer(E.programOf('chrome'));
+  assert.deepEqual([bad.installed, bad.executable, bad.binaryPath], [false, false, 'chrome']);
 });
 
 test('the seed rule is VibeSpace\'s mintSeed: a positive 31-bit integer from 8 hex characters', () => {
@@ -75,20 +77,10 @@ test('seeds.json: absent = empty; not JSON / not an object ⇒ refused by name (
   assert.equal(E.seedFor(E.seedTableOf('{"bk-x": -3}').table, 'bk-x', () => '00000001').code, 'seed_malformed');
 });
 
-test('the launch answer: --no-sandbox + the seed, an empty env, never an argument that is VibeSpace\'s (a proxy, the debugging endpoint, the profile dir)', () => {
-  const a = E.launchAnswer({ binaryPath: '/s/kernel/linux-x64/chrome', seed: 4242 });
-  assert.deepEqual(a, { executablePath: '/s/kernel/linux-x64/chrome', args: ['--no-sandbox', '--fingerprint=4242'], env: {} });
+test('the launch answer: THE handed program, --no-sandbox + the seed, an empty env — never a proxy, the debugging endpoint, the profile dir or a display flag', () => {
+  const a = E.launchAnswer({ binaryPath: USER_PROGRAM, seed: 4242 });
+  assert.deepEqual(a, { executablePath: USER_PROGRAM, args: ['--no-sandbox', '--fingerprint=4242'], env: {} });
   assert.ok(!a.args.some((x) => E.NOT_OURS_RE.test(x)));
-  assert.ok(!a.args.some((x) => /proxy/i.test(x)));
-  for (const own of ['--proxy-server=http://127.0.0.1:1', '--proxy-bypass-list=<-loopback>', '--proxy-pac-url=x', '--winhttp-proxy-resolver', '--remote-debugging-port=0', '--user-data-dir=/x']) assert.ok(E.NOT_OURS_RE.test(own), own);
-});
-
-test('insideDir: only a path under the state folder is this plugin\'s to read', () => {
-  assert.ok(E.insideDir('/d/state/id', '/d/state/id/kernel/linux-x64/chrome'));
-  assert.ok(!E.insideDir('/d/state/id', '/d/state/id'));
-  assert.ok(!E.insideDir('/d/state/id', '/d/state/id-other/chrome'));
-  assert.ok(!E.insideDir('/d/state/id', '/d/state/id/../other/chrome'));
-  assert.ok(!E.insideDir('/d/state/id', 'kernel/chrome'));
-  assert.ok(!E.insideDir('', '/x'));
-  assert.equal(E.defaultBinaryPath('/d/state/id'), '/d/state/id/kernel/linux-x64/chrome');
+  assert.ok(!a.args.some((x) => /proxy|headless|ozone|display/i.test(x)));
+  for (const own of ['--proxy-server=http://127.0.0.1:1', '--proxy-bypass-list=<-loopback>', '--proxy-pac-url=x', '--winhttp-proxy-resolver', '--remote-debugging-port=0', '--user-data-dir=/x', '--headless=new', '--ozone-platform=x11']) assert.ok(E.NOT_OURS_RE.test(own), own);
 });
