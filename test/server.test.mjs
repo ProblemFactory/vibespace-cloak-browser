@@ -143,6 +143,53 @@ test('a migrated seeds.json is honoured; an unreadable one is refused by name an
   assert.equal(fs.readFileSync(file, 'utf8'), '{ not json', 'never overwritten');
 });
 
+test('seeds.json present but unreadable (mode 000, a folder): 500 seeds_unreadable with the errno as cause, nothing written', async (t) => {
+  const { p, kernelPath, dataDir } = await up(t);
+  placeKernel(kernelPath);
+  const file = path.join(dataDir, 'seeds.json');
+  fs.writeFileSync(file, JSON.stringify({ 'bk-old': 1234567 }), { mode: 0o600 });
+  fs.chmodSync(file, 0o000);
+  t.after(() => { try { fs.chmodSync(file, 0o600); } catch { /* gone */ } });
+  const denied = process.getuid && process.getuid() === 0 ? null : await p.ask('POST', '/resolve-launch', { body: { profileId: 'bk-new', binaryPath: kernelPath } });
+  if (denied) {
+    assert.equal(denied.status, 500);
+    assert.equal(denied.body.code, 'seeds_unreadable');
+    assert.equal(denied.body.cause, 'EACCES');
+  } else t.diagnostic('running as root: mode 000 does not deny a read — the folder case below still holds');
+  fs.chmodSync(file, 0o600);
+  assert.equal(fs.readFileSync(file, 'utf8'), JSON.stringify({ 'bk-old': 1234567 }), 'never overwritten');
+  fs.rmSync(file);
+  fs.mkdirSync(file);
+  const dir = await p.ask('POST', '/resolve-launch', { body: { profileId: 'bk-new', binaryPath: kernelPath } });
+  assert.equal(dir.status, 500);
+  assert.equal(dir.body.code, 'seeds_unreadable');
+  assert.equal(dir.body.cause, 'EISDIR');
+  assert.deepEqual(fs.readdirSync(dataDir).filter((f) => /\.tmp$/.test(f)), []);
+});
+
+test('a query or body that is not an object, a binaryPath that is not a string: 400 by name, never read as «nothing asked»', async (t) => {
+  const { p, kernelPath } = await up(t);
+  placeKernel(kernelPath);
+  for (const query of ['binaryPath=/x', ['/x'], 42]) {
+    const r = await p.ask('GET', '/probe', { query });
+    assert.equal(r.status, 400, JSON.stringify(query));
+    assert.equal(r.body.code, 'bad_query');
+  }
+  for (const body of ['{"profileId":"bk-1"}', ['bk-1'], 7]) {
+    const r = await p.ask('POST', '/resolve-launch', { body });
+    assert.equal(r.status, 400, JSON.stringify(body));
+    assert.equal(r.body.code, 'bad_body');
+  }
+  const pq = await p.ask('GET', '/probe', { query: { binaryPath: [kernelPath, '/x'] } });
+  assert.equal(pq.status, 400);
+  assert.equal(pq.body.code, 'bad_binary_path');
+  const pb = await p.ask('POST', '/resolve-launch', { body: { profileId: 'bk-1', binaryPath: { path: kernelPath } } });
+  assert.equal(pb.status, 400);
+  assert.equal(pb.body.code, 'bad_binary_path');
+  assert.equal((await p.ask('GET', '/probe', { query: null })).status, 200, 'no query at all is «nothing asked»');
+  assert.equal((await p.ask('POST', '/resolve-launch', { query: {}, body: { profileId: 'bk-1', binaryPath: kernelPath } })).status, 200);
+});
+
 test('anything else: 404 by code (a wrong method included)', async (t) => {
   const { p } = await up(t);
   for (const [m, r] of [['GET', '/nope'], ['GET', '/resolve-launch'], ['POST', '/probe'], ['DELETE', '/health'], ['GET', '/']]) {

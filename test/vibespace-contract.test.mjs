@@ -5,14 +5,16 @@
 // The three engine-SPI fields this plugin relies on (VibeSpace's engine plugin contract):
 //   ① the probe `features` word `egress-allowlist` (and `surfaces` optional)   ② the reserved settings row `egressAllowlist`
 //   ③ kernel.json `layout.archiveFormat: 'tar.gz'`
-// On a VibeSpace that predates them the verdicts below refuse ① and ③ BY NAME — the legs assert that the refusal is
-// exactly that one rule (the same document with that one field changed passes), so a base without the SPI is a named
-// RED and a base with it is GREEN, never a silent pass.
+// On a VibeSpace that predates them the verdicts below refuse ① and ③ BY NAME. The legs first prove the refusal is
+// exactly that one rule (the same document with that one field changed passes), then THE HOST MODE decides
+// (test/harness.mjs): such a host is a FAILING leg named «THE HOST REFUSES THE PLUGIN», unless
+// CLOAK_EXPECT_HOST_REFUSES=1 declares it expected (then it passes by name). A host with the features is GREEN.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { vibespaceDir } from './harness.mjs';
+import { vibespaceDir, hostRefuses, hostRuns, assertConsent } from './harness.mjs';
 const require = createRequire(import.meta.url);
 const manifest = require('../vibespace-plugin.json');
 const kernel = require('../kernel.json');
@@ -55,6 +57,17 @@ test('the manifest, self-contained: the engine id, server + routes + browserEngi
   const s = manifest.contributes.settings[0];
   assert.deepEqual([s.key, s.type, s.default], ['egressAllowlist', 'string', '']);
   assert.deepEqual(manifest.capabilities, { server: {} });
+  assert.match(manifest.description, /Not affiliated with CloakHQ.*https:\/\/github\.com\/CloakHQ\/CloakBrowser\/blob\/main\/BINARY-LICENSE\.md/);
+  assert.ok(manifest.description.length <= 500 && manifest.contributes.settings[0].description.length <= 300 && manifest.contributes.settings[0].label.length <= 80, 'within the manifest text caps');
+});
+
+test('CHANGELOG.md has an entry for this version naming the same minimum VibeSpace as engines.vibespace', () => {
+  const log = fs.readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+  const entry = log.split(/^## /m).find((s) => s.startsWith(manifest.version + '\n'));
+  assert.ok(entry, `an entry «## ${manifest.version}»`);
+  const m = /Requires VibeSpace ≥ (\d+\.\d+\.\d+)/.exec(entry);
+  assert.ok(m, 'the entry names its minimum VibeSpace');
+  assert.equal(m[1], manifest.engines.vibespace, 'the CHANGELOG and the manifest name the same release');
 });
 
 test('VibeSpace validateManifest: valid, no warning, nothing clipped; the consent names a server process + the browser engine and nothing more', needVS, (t) => {
@@ -68,15 +81,18 @@ test('VibeSpace validateManifest: valid, no warning, nothing clipped; the consen
   assert.equal(v.manifest.description, manifest.description, 'the description arrives whole (≤ 500)');
   assert.equal(v.manifest.contributes.browserEngine, true);
   assert.ok(PM.needsConsent(v.manifest));
-  assert.deepEqual(PM.capabilitySummary(v.manifest).map((i) => i.id), ['server-process', 'browser-engine']);
+  assertConsent(PM.capabilitySummary(v.manifest).map((i) => i.id));
   assert.ok(PM.ID_RE.test(manifest.id) && vs('src/browser-engines.js').ID_RE.test(manifest.id));
 });
 
-test('VibeSpace kernelManifestVerdict: kernel.json is ONE artifact for linux-x64 (tar.gz needs the SPI\'s third field)', needVS, (t) => {
+test('HOST: VibeSpace kernelManifestVerdict accepts kernel.json — ONE artifact for linux-x64, tar.gz (engine SPI ③)', needVS, (t) => {
   const EK = vs('src/engine-kernel.js');
   const v = EK.kernelManifestVerdict(kernel, { tag: 'linux-x64', id: manifest.id, label: manifest.label });
   const same = { url: kernel.platforms['linux-x64'].url, sha256: kernel.platforms['linux-x64'].sha256, bytes: 216890134, version: '146.0.7680.177.5', source: 'package' };
+  const arm = EK.kernelManifestVerdict(kernel, { tag: 'linux-arm64' });
+  assert.equal(arm.code, 'build_platform_unsupported', 'another machine: refused by name, nothing downloaded');
   if (EK.ARCHIVE_FORMATS.includes('tar.gz')) {
+    hostRuns('its kernel road unpacks tar.gz');
     assert.ok(v.ok, v.error);
     assert.deepEqual({ url: v.url, sha256: v.sha256, bytes: v.bytes, version: v.version, source: v.source }, same);
     assert.deepEqual(v.layout, { archiveFormat: 'tar.gz', stripComponents: 0, binaryRelPath: 'chrome', requiredFiles: ['chrome', ...kernel.layout.requiredFiles] });
@@ -87,19 +103,28 @@ test('VibeSpace kernelManifestVerdict: kernel.json is ONE artifact for linux-x64
     const z = EK.kernelManifestVerdict({ ...kernel, layout: { ...kernel.layout, archiveFormat: EK.ARCHIVE_FORMATS[0] } }, { tag: 'linux-x64' });
     assert.ok(z.ok, z.error);
     assert.deepEqual({ url: z.url, sha256: z.sha256, bytes: z.bytes, version: z.version, source: z.source }, same);
-    t.diagnostic(`this VibeSpace unpacks ${EK.ARCHIVE_FORMATS.join(', ')} — kernel.json needs the tar.gz field (engine SPI ③)`);
+    hostRefuses(t, 'kernel.json', `${v.error} (this VibeSpace unpacks ${EK.ARCHIVE_FORMATS.join(', ')} — engine SPI ③)`);
   }
-  const arm = EK.kernelManifestVerdict(kernel, { tag: 'linux-arm64' });
-  assert.equal(arm.code, 'build_platform_unsupported', 'another machine: refused by name, nothing downloaded');
 });
 
-test('VibeSpace engineAnswerVerdict: the probe answer (no surfaces needs the SPI\'s first field) and the launch answer', needVS, (t) => {
+test('HOST: VibeSpace engineAnswerVerdict accepts the probe answer (no surfaces — engine SPI ①) and the launch answer', needVS, (t) => {
   const BE = vs('src/browser-engines.js');
   const kp = '/data/plugins-state/vibespace.cloak-browser/kernel/linux-x64/chrome';
   const probe = E.probeAnswer({ binaryPath: kp, installed: true, executable: true, size: 465371408, receipt: { sha256: E.pinOf(kernel), bytes: 465371408, verifiedAt: 1, version: '146.0.7680.177' }, kernel });
-  const v = BE.engineAnswerVerdict('probe', { status: 200, body: probe }, { id: manifest.id, label: manifest.label });
+  // the manifest's settings rows ride the verdict the way the engine registry hands them (a VibeSpace with the reserved-row
+  // check reads them; an older one ignores the option)
+  const settings = vs('src/plugin-manifest.js').validateManifest(manifest, { folderName: manifest.id }).manifest.contributes.settings;
+  const v = BE.engineAnswerVerdict('probe', { status: 200, body: probe }, { id: manifest.id, label: manifest.label, settings });
   const surfacesOptional = !!(BE.ENGINE_FEATURES && BE.ENGINE_FEATURES.includes('egress-allowlist'));
+  const launch = BE.engineAnswerVerdict('launchOptions', { status: 200, body: E.launchAnswer({ binaryPath: kp, seed: 1234567 }) }, { id: manifest.id });
+  assert.ok(launch.ok, launch.error);
+  assert.deepEqual(launch.launch, { executablePath: kp, args: ['--no-sandbox', '--fingerprint=1234567'], env: {} });
+  assert.ok(!launch.launch.args.some((a) => BE.OWN_ARG_RE.test(a)));
+  const missing = BE.engineAnswerVerdict('launchOptions', { status: 409, body: { error: 'x', code: 'no_binary' } }, { id: manifest.id });
+  assert.equal(missing.code, 'browser_engine_kernel_missing', 'the plugin\'s 409 no_binary is VibeSpace\'s kernel_missing');
+  if (BE.OWN_ARG_RE.test('--proxy-server=http://127.0.0.1:1')) t.diagnostic('this VibeSpace refuses a plugin-named proxy (engine SPI rule) — this plugin never names one');
   if (v.ok) {
+    hostRuns('its probe verdict accepts features [egress-allowlist] without surfaces');
     assert.deepEqual(v.fact.features, ['egress-allowlist']);
     assert.equal(v.fact.binaryPath, kp);
     assert.equal(v.fact.declaredVersion, '146.0.7680.177.5');
@@ -108,14 +133,7 @@ test('VibeSpace engineAnswerVerdict: the probe answer (no surfaces needs the SPI
     // a VibeSpace before the SPI: the ONE refusal is the surfaces rule (the same answer + 'surfaces' passes)
     assert.ok(!surfacesOptional, 'a VibeSpace that knows egress-allowlist must accept this probe: ' + v.error);
     assert.ok(v.code === 'browser_engine_protocol' && /surfaces/.test(v.error), JSON.stringify(v));
-    assert.ok(BE.engineAnswerVerdict('probe', { status: 200, body: { ...probe, features: ['surfaces', ...probe.features] } }, { id: manifest.id }).ok);
-    t.diagnostic('this VibeSpace requires the surfaces feature — the probe needs engine SPI ①');
+    assert.ok(BE.engineAnswerVerdict('probe', { status: 200, body: { ...probe, features: ['surfaces', ...probe.features] } }, { id: manifest.id, settings }).ok);
+    hostRefuses(t, 'the probe answer', `${v.error} (engine SPI ①)`);
   }
-  const launch = BE.engineAnswerVerdict('launchOptions', { status: 200, body: E.launchAnswer({ binaryPath: kp, seed: 1234567 }) }, { id: manifest.id });
-  assert.ok(launch.ok, launch.error);
-  assert.deepEqual(launch.launch, { executablePath: kp, args: ['--no-sandbox', '--fingerprint=1234567'], env: {} });
-  assert.ok(!launch.launch.args.some((a) => BE.OWN_ARG_RE.test(a)));
-  const missing = BE.engineAnswerVerdict('launchOptions', { status: 409, body: { error: 'x', code: 'no_binary' } }, { id: manifest.id });
-  assert.equal(missing.code, 'browser_engine_kernel_missing', 'the plugin\'s 409 no_binary is VibeSpace\'s kernel_missing');
-  if (BE.OWN_ARG_RE.test('--proxy-server=http://127.0.0.1:1')) t.diagnostic('this VibeSpace refuses a plugin-named proxy (engine SPI rule) — this plugin never names one');
 });

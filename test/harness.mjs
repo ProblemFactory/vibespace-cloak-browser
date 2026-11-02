@@ -2,6 +2,7 @@
 // fork with `node --permission --allow-fs-read=<plugin dir> --allow-fs-read=<state dir> --allow-fs-write=<state dir>`
 // (capabilities.server = {} adds nothing: no extra path, no --allow-child-process), the four VIBESPACE_PLUGIN_* names,
 // `serialization: 'advanced'`, stdio ignore/pipe/pipe/ipc; waits for {t:'hello'}; asks routes with {t:'route', id, …}.
+import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -86,4 +87,27 @@ export function placeKernel(kernelPath, { receipt = true, mode = 0o755, sha256 =
 export function vibespaceDir() {
   const d = process.env.VIBESPACE_DIR;
   return d && fs.existsSync(path.join(d, 'src', 'browser-engines.js')) ? path.resolve(d) : null;
+}
+
+/**
+ * THE HOST MODE (VIBESPACE_DIR legs). A VibeSpace that REFUSES this plugin — one that predates the engine features it
+ * needs (the probe feature `egress-allowlist` with `surfaces` optional, `tar.gz` kernels) — is a FAILING leg, by name:
+ * a suite that cannot tell «the host runs it» from «the host refuses it» proves nothing. CLOAK_EXPECT_HOST_REFUSES=1
+ * declares such a host EXPECTED: then each refusal passes by name (after the leg proved it is exactly the one missing
+ * rule), and a host that RUNS the plugin under that flag fails instead (the expectation is stale).
+ */
+export const EXPECT_HOST_REFUSES = process.env.CLOAK_EXPECT_HOST_REFUSES === '1';
+export function hostRefuses(t, what, why) {
+  if (!EXPECT_HOST_REFUSES) assert.fail(`THE HOST REFUSES THE PLUGIN — ${what}: ${why}. This VibeSpace predates the engine features the plugin needs (the probe feature egress-allowlist, tar.gz kernels): run the suite against one that has them, or set CLOAK_EXPECT_HOST_REFUSES=1 to accept this host by name`);
+  t.diagnostic(`expected host refusal (CLOAK_EXPECT_HOST_REFUSES=1) — ${what}: ${why}`);
+}
+export function hostRuns(what) {
+  if (EXPECT_HOST_REFUSES) assert.fail(`CLOAK_EXPECT_HOST_REFUSES=1, but this VibeSpace RUNS the plugin (${what}) — the expectation is stale: unset it`);
+}
+
+/** The consent a VibeSpace shows for this plugin: a server process + the browser engine, and — from the release with the
+ *  engine features — the allowlisting-proxy line. Never a filesystem, child-process, network or client-code item. */
+export function assertConsent(ids) {
+  assert.ok(ids.includes('server-process') && ids.includes('browser-engine'), JSON.stringify(ids));
+  assert.deepEqual(ids.filter((i) => !['server-process', 'browser-engine', 'egress-allowlist'].includes(i)), [], `no other power: ${JSON.stringify(ids)}`);
 }

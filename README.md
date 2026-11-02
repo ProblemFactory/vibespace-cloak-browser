@@ -5,18 +5,21 @@ likely to block as a bot — instead of Chrome, for the browser profiles you cho
 
 VibeSpace does not include CloakBrowser. Installing this plugin is how you add it.
 
+This project is not affiliated with CloakHQ. The CloakBrowser browser is theirs, under their
+[CloakBrowser Binary License](https://github.com/CloakHQ/CloakBrowser/blob/main/BINARY-LICENSE.md).
+
 ## Install
 
-1. In VibeSpace: **⚙ → Plugins → Install plugin… → Git**
-   - URL: `https://github.com/ProblemFactory/vibespace-cloak-browser.git`
+1. In VibeSpace: **⚙ → Tools ▸ Plugins… → Install plugin…**
+   - Source: **Git repository URL**
+   - Location: `https://github.com/ProblemFactory/vibespace-cloak-browser.git`
    - Ref: `main`
-
-   The repository is public: no Plugin Git credential is needed.
+   - Credential: **None (a public repository)**
 2. **Enable (trusted)**. VibeSpace asks for your consent because a browser engine names the program VibeSpace starts as
    a profile's browser. The plugin's own process runs sandboxed: it reads only its own folder and its state folder, and
    it cannot start programs.
-3. Choose it for a profile in **Change build…** (or when you create one with **New profile…**), or make it the default
-   browser engine for new profiles in ⚙ Settings.
+3. Choose it for a profile in **Change build…** (per profile). The default-engine row in ⚙ Settings offers it from the
+   VibeSpace release that carries the engine features (see [Requirements](#requirements)).
 
 The first time a profile starts on CloakBrowser, VibeSpace downloads the browser (about 217 MB) from CloakHQ, checks its
 length and its SHA-256 against [`kernel.json`](kernel.json), unpacks it into the plugin's state folder and measures its
@@ -32,8 +35,10 @@ browser and puts every connection through it: exact host names (`example.com`), 
 its sub-domains. Empty (the default) means it opens no site at all. Loopback and link-local addresses are never
 admitted. Sites outside the list are refused, and the agent is told which host was refused.
 
-The proxy is VibeSpace's, not the plugin's: the plugin only declares the setting. It cannot name a proxy of its own or
-turn VibeSpace's off. CloakBrowser itself needs no site of its own (measured: see [`egress-proof.json`](egress-proof.json)).
+The proxy is VibeSpace's, not the plugin's: the plugin only declares the site list, and it never names a proxy of its
+own. VibeSpace wraps the browser in its own proxy whenever the plugin declares the site list; the core refuses a plugin
+version that drops the declaration. CloakBrowser itself needs no site of its own (measured: see
+[`egress-proof.json`](egress-proof.json)).
 
 ## What you get, and what you don't
 
@@ -49,9 +54,10 @@ turn VibeSpace's off. CloakBrowser itself needs no site of its own (measured: se
 
 ## Requirements
 
-- A VibeSpace version with the engine features this plugin relies on: the probe feature `egress-allowlist` (the
-  allowlisting proxy for a plugin engine), the plugin setting `egressAllowlist`, and `tar.gz` browser downloads. On an
-  older VibeSpace the plugin installs, but VibeSpace refuses to start it and says why.
+- VibeSpace ≥ the release noted in [CHANGELOG.md](CHANGELOG.md): the first release with the engine features this
+  plugin relies on (the probe feature `egress-allowlist` — the allowlisting proxy for a plugin engine —, the plugin
+  setting `egressAllowlist`, and `tar.gz` browser downloads). The manifest's `engines.vibespace` names that release, and
+  VibeSpace enforces it at install: an older VibeSpace refuses to install the plugin («requires VibeSpace ≥ …»).
 - Linux x64.
 
 ## Licences
@@ -70,6 +76,7 @@ turn VibeSpace's off. CloakBrowser itself needs no site of its own (measured: se
 | File | What it is |
 |---|---|
 | `vibespace-plugin.json` | The plugin's manifest: a browser engine with one setting. |
+| `CHANGELOG.md` | Each plugin version and the VibeSpace release it needs. |
 | `server.js`, `lib/engine.js` | The plugin's process. It answers VibeSpace's two engine questions: is the browser installed (`GET /probe`), and how is it started for a profile (`POST /resolve-launch`). |
 | `kernel.json` | Where VibeSpace downloads the browser from, its SHA-256 and length, and the archive's layout. The SHA-256 is the control: an archive that does not match is never unpacked. |
 | `egress-proof.json` | What the free build was measured to reach (documentation; the proxy enforces it). |
@@ -81,10 +88,12 @@ turn VibeSpace's off. CloakBrowser itself needs no site of its own (measured: se
 ```sh
 npm test                                   # the plugin under the same node --permission sandbox VibeSpace uses
 VIBESPACE_DIR=<a VibeSpace checkout> npm test   # + VibeSpace's own manifest / kernel / answer checks and its real plugin loader
+CLOAK_EXPECT_HOST_REFUSES=1 VIBESPACE_DIR=<an older checkout> npm test   # that checkout predates the engine features: its refusals pass by name
 CLOAK_ARCHIVE=<the downloaded .tar.gz> VIBESPACE_DIR=<checkout> npm test   # + the real archive against kernel.json
 ```
 
-The tests need Node 22 or later and install nothing.
+The tests need Node 22 or later and install nothing. Against a VibeSpace checkout without the engine features, the
+`HOST:` legs fail by name («THE HOST REFUSES THE PLUGIN») unless `CLOAK_EXPECT_HOST_REFUSES=1` says that host is expected.
 
 ### Moving to a new CloakBrowser build
 
@@ -94,4 +103,4 @@ The tests need Node 22 or later and install nothing.
 3. Re-measure: `node scripts/measure-egress.mjs --work <empty dir> --download --agent-browser <the real agent-browser>`
    (needs `strace`). Record the result in `egress-proof.json`. A build that reaches anything beyond the loopback port its
    driver opened is not shipped.
-4. `CLOAK_ARCHIVE=… VIBESPACE_DIR=… npm test`, then bump the plugin's `version` and tag a release.
+4. `CLOAK_ARCHIVE=… VIBESPACE_DIR=… npm test`, then bump the plugin's `version`, add its CHANGELOG entry and tag a release.

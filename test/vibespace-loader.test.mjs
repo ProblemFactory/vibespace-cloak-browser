@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { REPO, ID, placeKernel, vibespaceDir } from './harness.mjs';
+import { REPO, ID, placeKernel, vibespaceDir, hostRefuses, hostRuns, assertConsent } from './harness.mjs';
 const require = createRequire(import.meta.url);
 const VS = vibespaceDir();
 const opts = VS ? {} : { skip: 'VIBESPACE_DIR is not set to a VibeSpace checkout' };
@@ -17,7 +17,7 @@ const manifest = require('../vibespace-plugin.json');
 
 const waitFor = async (fn, ms = 8000) => { const t0 = Date.now(); while (!fn() && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 25)); return fn(); };
 
-test('the real loader + engine registry: consent, the engine row, both verbs, the seed per profile', opts, async (t) => {
+test('HOST: the real loader + engine registry run the plugin — consent, the engine row, both verbs, the seed per profile', opts, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cloak-plugin-vs-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   // the package as a git install lands it: the repository's tree (no .git) in data/plugins/<id>
@@ -31,7 +31,7 @@ test('the real loader + engine registry: consent, the engine row, both verbs, th
   const rec = LDR.list().find((p) => p.id === ID);
   assert.ok(rec && rec.valid, `the loader reads the manifest: ${rec && rec.errors.join('; ')}`);
   assert.deepEqual(rec.warnings, []);
-  assert.deepEqual(rec.capabilitySummary.map((i) => i.id), ['server-process', 'browser-engine']);
+  assertConsent(rec.capabilitySummary.map((i) => i.id));
   assert.equal(ENGR.rows().length, 0, 'installed, not enabled: no engine');
 
   assert.throws(() => LDR.setEnabled(ID, true), /needs your consent/, 'an engine plugin is never enabled without consent');
@@ -52,8 +52,8 @@ test('the real loader + engine registry: consent, the engine row, both verbs, th
   // the registry's verdict: after the engine SPI ok; before it, refused by the ONE surfaces rule
   const BE = require(path.join(VS, 'src/browser-engines.js'));
   const pr0 = await ENGR.probe(ID);
-  if (pr0.ok) assert.ok(pr0.fact.installed === false && pr0.fact.binaryPath === KP && pr0.fact.label === 'CloakBrowser', JSON.stringify(pr0));
-  else { assert.ok(pr0.code === 'browser_engine_protocol' && /surfaces/.test(pr0.error), JSON.stringify(pr0)); t.diagnostic(`this VibeSpace's registry refuses the probe: ${pr0.error} (engine SPI ① lifts it)`); }
+  if (pr0.ok) { hostRuns('its engine registry accepts the probe'); assert.ok(pr0.fact.installed === false && pr0.fact.binaryPath === KP && pr0.fact.label === 'CloakBrowser', JSON.stringify(pr0)); }
+  else assert.ok(pr0.code === 'browser_engine_protocol' && /surfaces/.test(pr0.error), JSON.stringify(pr0)); // the ONE missing rule — the host mode judges it at the end
 
   placeKernel(KP);
   const raw1 = await LDR.askRoute(ID, { method: 'GET', path: '/probe', query: { binaryPath: KP } });
@@ -85,6 +85,7 @@ test('the real loader + engine registry: consent, the engine row, both verbs, th
 
   LDR.setEnabled(ID, false);
   assert.ok(await waitFor(() => ENGR.rows().length === 0), 'disabled ⇒ the engine leaves the table at once');
+  if (!pr0.ok) hostRefuses(t, 'the engine registry\'s probe', `${pr0.error} (engine SPI ①)`);
 });
 
 test('the settings row: plugin.vibespace.cloak-browser.egressAllowlist, a string defaulting to empty, under «Plugin: CloakBrowser»', opts, async (t) => {

@@ -12,6 +12,9 @@
  *   POST /resolve-launch, POST /launch-options
  *                      200 {executablePath, args: ['--no-sandbox', '--fingerprint=<seed>'], env: {}}
  *                      409 {code:'no_binary'} when the kernel is not in its place; 400 {code:'bad_profile'}
+ *                      500 {code:'seeds_unreadable', cause: <errno>} when seeds.json cannot be read (never overwritten)
+ *   a query / body that is not an object, a binaryPath that is not a string
+ *                      400 {code:'bad_query' | 'bad_body' | 'bad_binary_path'}
  *   anything else      404 {code:'not_found'}
  *   a failure          500 {error, code} (the error's own code, e.g. ERR_ACCESS_DENIED from the sandbox)
  *
@@ -40,8 +43,11 @@ function version() {
 }
 const readOrNull = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch (e) { if (e && e.code === 'ENOENT') return null; throw e; } };
 
-/** The program VibeSpace asks about: the path it hands in, else the kernel's own place in the state folder. */
-const binaryOf = (input) => (typeof input.binaryPath === 'string' && input.binaryPath ? input.binaryPath : E.defaultBinaryPath(DATA));
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+/** The program VibeSpace asks about: the path it hands in, else the kernel's own place in the state folder; null = a
+ *  binaryPath of another shape (refused 400, never read as «none»). */
+const binaryOf = (input) => (input.binaryPath === undefined || input.binaryPath === '' ? E.defaultBinaryPath(DATA) : typeof input.binaryPath === 'string' ? input.binaryPath : null);
+const badPath = [400, { error: 'binaryPath is not a string (one absolute path)', code: 'bad_binary_path' }];
 
 /** What is at `p` — judged only inside the state folder (anything else is not this plugin's kernel, and never touched). */
 function kernelFacts(p) {
@@ -58,6 +64,7 @@ function kernelFacts(p) {
 
 function probe(input) {
   const p = binaryOf(input);
+  if (p === null) return badPath;
   const f = kernelFacts(p);
   return [200, E.probeAnswer({ binaryPath: p, installed: f.installed, executable: f.executable, receipt: f.receipt, size: f.size, kernel: kernel() })];
 }
@@ -66,10 +73,14 @@ function launch(input) {
   const profileId = typeof input.profileId === 'string' ? input.profileId : '';
   if (!E.PROFILE_RE.test(profileId)) return [400, { error: 'the launch named no profile (a short id)', code: 'bad_profile' }];
   const p = binaryOf(input);
+  if (p === null) return badPath;
   const f = kernelFacts(p);
   if (!f.installed) return [409, { error: `no CloakBrowser kernel at ${p} — VibeSpace downloads it from this plugin's kernel.json`, code: 'no_binary' }];
   const file = path.join(DATA, E.SEEDS_FILE);
-  const t = E.seedTableOf(readOrNull(file));
+  // every read failure but «absent» (EACCES, EISDIR, …) is the table being unreadable — answered by name, the file untouched
+  let text;
+  try { text = readOrNull(file); } catch (e) { return [500, { error: `${E.SEEDS_FILE} in the plugin's state folder cannot be read (${(e && e.code) || 'error'}) — it was left as it is`, code: 'seeds_unreadable', cause: String((e && e.code) || 'unknown') }]; }
+  const t = E.seedTableOf(text);
   if (!t.ok) return [500, { error: t.error, code: t.code }];
   const s = E.seedFor(t.table, profileId, () => crypto.randomBytes(4).toString('hex'));
   if (!s.ok) return [s.code === 'bad_profile' ? 400 : 500, { error: s.error, code: s.code }];
@@ -86,12 +97,13 @@ function health() { return [200, { ok: true, id: E.ID, version: version(), proto
 
 function route(msg) {
   if (loadError) throw loadError;
-  const input = { ...(msg.query && typeof msg.query === 'object' ? msg.query : {}), ...(msg.body && typeof msg.body === 'object' && !Array.isArray(msg.body) ? msg.body : {}) };
   const method = String(msg.method || 'GET').toUpperCase(), p = String(msg.path || '');
-  if (method === 'GET' && p === '/health') return health();
-  if (method === 'GET' && p === '/probe') return probe(input);
-  if (method === 'POST' && (p === '/resolve-launch' || p === '/launch-options')) return launch(input);
-  return [404, { error: 'route not found', code: 'not_found' }];
+  const verb = method === 'GET' && p === '/health' ? health : method === 'GET' && p === '/probe' ? probe : method === 'POST' && (p === '/resolve-launch' || p === '/launch-options') ? launch : null;
+  if (!verb) return [404, { error: 'route not found', code: 'not_found' }];
+  // a query / body of another shape is refused by name, never read as «nothing asked»
+  if (msg.query != null && !isObj(msg.query)) return [400, { error: 'the query is not an object of names and values', code: 'bad_query' }];
+  if (msg.body != null && !isObj(msg.body)) return [400, { error: 'the body is not a JSON object', code: 'bad_body' }];
+  return verb({ ...(msg.query || {}), ...(msg.body || {}) });
 }
 
 if (typeof process.send !== 'function') {
