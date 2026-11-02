@@ -1,0 +1,23 @@
+{
+  "id": "vibespace.cloak-browser",
+  "version": "0.1.0",
+  "label": "CloakBrowser",
+  "description": "CloakBrowser as a browser engine for VibeSpace's agent browser: a Chromium build that sites are less likely to block as a bot. VibeSpace downloads the vendor's free build (pinned by its sha256) and keeps it inside an allowlisting proxy: it reaches only the sites you list.",
+  "engines": { "vibespace": "2.369.370" },
+  "client": "none",
+  "server": true,
+  "contributes": {
+    "routes": true,
+    "browserEngine": true,
+    "settings": [
+      {
+        "key": "egressAllowlist",
+        "type": "string",
+        "default": "",
+        "label": "Sites it may open (host names, comma-separated)",
+        "description": "The only sites this browser may reach, through VibeSpace's allowlisting proxy: exact host names, or \".example.com\" for a domain and all its sub-domains. Empty (default): it opens no site at all. CloakBrowser needs no site of its own. Loopback and link-local addresses are never admitted."
+      }
+    ]
+  },
+  "capabilities": { "server": {} }
+}
