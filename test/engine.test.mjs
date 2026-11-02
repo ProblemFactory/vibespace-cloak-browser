@@ -7,9 +7,9 @@ const E = require('../lib/engine.js');
 
 const USER_PROGRAM = '/home/userW/.cloakbrowser/chromium-146.0.7680.177.5/chrome';
 
-test('the probe answer about a handed program: the path echoed, protocol 1, features exactly [egress-allowlist] (no surfaces), no kinds, no version of its own', () => {
+test('the probe answer about a handed program: the path echoed, NOTHING claimed about it (installed / executable false — VibeSpace judges the file), protocol 1, features exactly [egress-allowlist] (no surfaces), no kinds, no version of its own', () => {
   const a = E.probeAnswer(E.programOf(USER_PROGRAM));
-  assert.deepEqual(a, { id: 'vibespace.cloak-browser', installed: true, executable: true, binaryPath: USER_PROGRAM, version: null, declaredVersion: null, protocol: 1, kinds: [], features: ['egress-allowlist'] });
+  assert.deepEqual(a, { id: 'vibespace.cloak-browser', installed: false, executable: false, binaryPath: USER_PROGRAM, version: null, declaredVersion: null, protocol: 1, kinds: [], features: ['egress-allowlist'] });
   assert.ok(!a.features.includes('surfaces'));
   assert.ok(!('integrity' in a), 'no receipt, no pin: nothing is downloaded');
 });

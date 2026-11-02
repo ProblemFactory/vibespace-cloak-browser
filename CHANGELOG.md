@@ -3,7 +3,7 @@
 ## 0.2.0
 
 - CloakBrowser is now yours to install: install it from its maker (`npx cloakbrowser install`, or their own download) and
-  paste the path of its program file into ⚙ Settings → Plugin: CloakBrowser → **Program file**. VibeSpace checks that file,
+  paste the path of its program file into ⚙ → Plugins → CloakBrowser → **Program file**. VibeSpace checks that file,
   measures its version and runs it inside its allowlisting proxy. The plugin downloads nothing, pins no build and never
   opens the program's file itself.
 - Removed: `kernel.json` (VibeSpace's download of the vendor's archive), `egress-proof.json` and its measuring script.

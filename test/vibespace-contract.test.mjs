@@ -6,8 +6,9 @@
 //   ① the probe `features` word `egress-allowlist` (and `surfaces` optional) + the reserved settings row `egressAllowlist`
 //   ② THE USER-BINARY ROAD: the reserved settings row `executablePath` — the program YOU name; VibeSpace reads it, judges the
 //      file, measures its version, hands the path to the probe and the launch, and starts exactly that program
-// A VibeSpace without ② looks for the program at its own download place and downloads it from a kernel.json this plugin does
-// not carry. The HOST leg first proves everything else of the plugin is accepted, then THE HOST MODE decides
+// A VibeSpace without ② does not read the row: its registry hands the plugin its own download place, finds no program there
+// and refuses the start by name; its kernel road refuses a package with no kernel.json. The HOST leg first proves everything
+// else of the plugin is accepted, then THE HOST MODE decides
 // (test/harness.mjs): such a host is a FAILING leg named «THE HOST REFUSES THE PLUGIN», unless CLOAK_EXPECT_HOST_REFUSES=1
 // declares it expected (then it passes by name). A host with ② is GREEN.
 import test from 'node:test';
@@ -119,10 +120,10 @@ test('HOST: VibeSpace reads executablePath as the engine\'s program — the user
     assert.notEqual(PM.capabilitiesHash(m), PM.capabilitiesHash(withoutRow), 'consent covers the row: a version without it drifts');
   } else {
     // a VibeSpace before the user-binary road: the rest of the plugin is accepted (the legs above) — but the row is an ordinary
-    // setting there: nothing reads it as the program, consent does not cover it, and the engine's program would be looked for at
-    // VibeSpace's own download place (plugins-state/<id>/kernel/<platform>/chrome), downloaded from a kernel.json this plugin lacks
+    // setting there: nothing reads it as the program and consent does not cover it; the registry hands the plugin VibeSpace's own
+    // download place (plugins-state/<id>/kernel/<platform>/chrome) instead, and the kernel road refuses a package with no kernel.json
     assert.equal(PM.capabilitiesHash(m), PM.capabilitiesHash(withoutRow), 'this host\'s consent does not cover the row');
     assert.ok(!PM.capabilitySummary(m).some((i) => i.id === 'user-binary'));
-    hostRefuses(t, 'the executablePath row', 'this VibeSpace has no user-binary road (no engineSourceOf / binaryRowOf): it does not read the program you set in Program file — it looks for one at its own download place and would download it from a kernel.json this plugin does not carry');
+    hostRefuses(t, 'the executablePath row', 'this VibeSpace has no user-binary road (no engineSourceOf / binaryRowOf): it does not read the program you set in Program file — its registry hands the plugin its own download place instead, and its kernel road refuses: this package has no kernel.json');
   }
 });

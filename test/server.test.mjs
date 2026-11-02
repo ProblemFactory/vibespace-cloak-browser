@@ -24,11 +24,11 @@ test('GET /health', async (t) => {
   assert.deepEqual(r.body, { ok: true, id: 'vibespace.cloak-browser', version: '0.2.0', protocol: 1 });
 });
 
-test('GET /probe ECHOES the program it is handed (outside its folders), the features word, no surfaces, no version of its own', async (t) => {
+test('GET /probe ECHOES the program it is handed (outside its folders) and claims nothing about it, the features word, no surfaces, no version of its own', async (t) => {
   const { p, program } = await up(t);
   const r = await p.ask('GET', '/probe', { query: { binaryPath: program, platform: 'linux' } });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.body, { id: 'vibespace.cloak-browser', installed: true, executable: true, binaryPath: program, version: null, declaredVersion: null, protocol: 1, kinds: [], features: ['egress-allowlist'] });
+  assert.deepEqual(r.body, { id: 'vibespace.cloak-browser', installed: false, executable: false, binaryPath: program, version: null, declaredVersion: null, protocol: 1, kinds: [], features: ['egress-allowlist'] });
   assert.doesNotMatch(p.stderr(), /ERR_ACCESS_DENIED/);
 });
 

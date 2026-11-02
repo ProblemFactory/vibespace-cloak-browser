@@ -28,9 +28,10 @@ This project is not affiliated with CloakHQ. The CloakBrowser browser is theirs,
 3. **Enable (trusted)**. VibeSpace asks for your consent because a browser engine names the browser VibeSpace starts for
    a profile, and this one runs the program you name in its settings, outside the plugin sandbox. The plugin's own
    process stays sandboxed: it reads only its own folder and its state folder, and it cannot start programs.
-4. **⚙ Settings → Plugin: CloakBrowser** (插件 › CloakBrowser) **→ Program file**: paste the path from step 1.
+4. Open the plugin's settings — the **⚙** on its row in Tools ▸ Plugins… (**⚙ → Plugins → CloakBrowser → Program file**),
+   or **⚙ → All Settings… → Plugin: CloakBrowser** — and paste the path from step 1 into **Program file**.
 5. Choose it for a profile in **Change build…** (per profile), or make it the **Default browser engine** for new agent
-   browsers in ⚙ Settings → Agent browser.
+   browsers in **⚙ → All Settings… → Agent browser**.
 
 VibeSpace checks the program file before it starts it — it must be there, be a file you may run, and be a program for
 this computer (not a script) — and measures its version once (again whenever the file changes). If something is wrong,
@@ -38,7 +39,7 @@ the profile's start is refused with a message that says what and points back to 
 
 ## The settings
 
-⚙ Settings → **Plugin: CloakBrowser**:
+**⚙ → All Settings… → Plugin: CloakBrowser** (or the ⚙ on the plugin's row in Tools ▸ Plugins…):
 
 - **Program file** — the CloakBrowser program (its `chrome` file). Required. Only you can set it: an agent cannot.
 - **Sites it may open (host names, comma-separated)** — a CloakBrowser profile reaches **only** the sites in this list.

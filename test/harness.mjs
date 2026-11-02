@@ -97,8 +97,9 @@ export function vibespaceDir() {
 
 /**
  * THE HOST MODE (VIBESPACE_DIR legs). A VibeSpace that cannot run this plugin — one that predates the user-binary road
- * (the reserved `executablePath` setting: VibeSpace judges and runs the program you name; without it, it looks for a
- * kernel.json this plugin no longer carries) — is a FAILING leg, by name: a suite that cannot tell «the host runs it» from
+ * (the reserved `executablePath` setting: VibeSpace judges and runs the program you name; without it, its registry hands the
+ * plugin its own download place and its kernel road refuses a package with no kernel.json) — is a FAILING leg, by name: a
+ * suite that cannot tell «the host runs it» from
  * «the host refuses it» proves nothing. CLOAK_EXPECT_HOST_REFUSES=1 declares such a host EXPECTED: then each refusal passes
  * by name (after the leg proved everything else of the plugin is accepted), and a host that RUNS the plugin under that flag
  * fails instead (the expectation is stale).

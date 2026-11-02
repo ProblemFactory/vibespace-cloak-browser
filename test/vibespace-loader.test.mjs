@@ -75,7 +75,7 @@ test('HOST: the real loader + engine registry run the plugin over the program yo
     assert.deepEqual(await ENGR.binaryPathOf(ID), { ok: true, source: 'user', path: '' });
     const p0 = await ENGR.probe(ID);
     assert.ok(p0.ok && p0.fact.installed === false && p0.fact.executable === false && p0.fact.userBinary && p0.fact.userBinary.code === 'browser_engine_kernel_missing', JSON.stringify(p0));
-    // a missing file: the plugin's «installed» is NOT read — the core's fact wins
+    // a missing file: the core's fact (the plugin claims nothing either way)
     values[PROGRAM_KEY] = missing;
     const p1 = await ENGR.probe(ID);
     assert.ok(p1.ok && p1.fact.binaryPath === missing && p1.fact.installed === false && p1.fact.executable === false && p1.fact.userBinary.why === 'missing', JSON.stringify(p1));
@@ -96,18 +96,21 @@ test('HOST: the real loader + engine registry run the plugin over the program yo
     // the download road is closed for it: VibeSpace downloads nothing
     await assert.rejects(EDS.installKernel(ID, { by: 'user' }), (e) => e && e.code === 'engine_source_user', 'no kernel download for a program you name');
   } else {
-    // a VibeSpace before the user-binary road: it hands the plugin ITS OWN download place, not the program you named, takes the
-    // plugin's word on a file it never judged, and its download road refuses this package (no kernel.json) — by its own words
+    // a VibeSpace before the user-binary road: it hands the plugin ITS OWN download place, not the program you named; the plugin
+    // claims nothing about it, so the base finds no program and REFUSES THE START BY NAME (never starts what nobody judged), and
+    // its kernel road — the keeper's first-use ask — refuses this package (no kernel.json): both in its own words
     values[PROGRAM_KEY] = program || script;
     const kp = ENGR.kernelPath(ID);
     const pr = await ENGR.probe(ID);
-    assert.ok(pr.ok && pr.fact.binaryPath === kp, `the base hands its download place: ${JSON.stringify(pr)}`);
+    assert.ok(pr.ok && pr.fact.binaryPath === kp && pr.fact.installed === false && pr.fact.executable === false, `the base hands its download place: ${JSON.stringify(pr)}`);
     assert.ok(!fs.existsSync(kp), 'and there is no program there');
+    const ch = BE.engineChoiceVerdict({ choice: { kind: 'plugin', id: ID }, engine: pr.fact });
+    assert.ok(!ch.ok && ch.code === 'browser_engine_kernel_missing', `the base refuses the start by name: ${JSON.stringify(ch)}`);
     let refusal = null;
-    try { await EDS.installKernel(ID, { by: 'user' }); } catch (e) { refusal = e; }
-    assert.ok(refusal && /kernel\.json/.test(refusal.message), `the base's download road refuses this package by name: ${refusal && refusal.message}`);
+    try { await EDS.installKernel(ID, { by: 'first-use', answer: true }); } catch (e) { refusal = e; }
+    assert.ok(refusal && /kernel\.json/.test(refusal.message), `the base's kernel road refuses this package by name: ${refusal && refusal.message}`);
     launchPath = kp;
-    baseRefusal = `it hands the plugin its own download place (plugins-state/${ID}/kernel/${ENGR.tag}/chrome) instead of the program set in Program file, and its download road refuses: ${refusal.message}`; // the host mode judges it at the end
+    baseRefusal = `it hands the plugin its own download place (plugins-state/${ID}/kernel/${ENGR.tag}/chrome) instead of the program set in Program file, so it refuses the start (${ch.code}), and its kernel road refuses: ${refusal.message}`; // the host mode judges it at the end
   }
 
   // the keeper's launch ask: {platform, profileId, binaryPath, userDataDir} — the plugin starts exactly the program handed
@@ -140,7 +143,7 @@ test('HOST: the CloakBrowser you installed (CLOAK_PROGRAM) — VibeSpace judges 
   LDR.setEnabled(ID, true, { trusted: true });
   assert.ok(await waitFor(() => ENGR.rows().length === 1));
   values[PROGRAM_KEY] = CLOAK_PROGRAM;
-  if (!userRoad) { hostRefuses(t, 'the program you installed', `this VibeSpace cannot run it: it asks for ${ENGR.kernelPath(ID)} instead`); return; }
+  if (!userRoad) { hostRefuses(t, 'the program you installed', `this VibeSpace cannot run it: it asks the plugin about its own download place (plugins-state/${ID}/kernel/${ENGR.tag}/chrome) instead`); return; }
   hostRuns('it judges and measures the program you installed');
   const pr = await ENGR.probe(ID);
   assert.ok(pr.ok && pr.fact.installed && pr.fact.executable && pr.fact.binaryPath === CLOAK_PROGRAM && !pr.fact.userBinary, JSON.stringify(pr));
