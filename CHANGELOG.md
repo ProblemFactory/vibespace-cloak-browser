@@ -8,7 +8,7 @@
   opens the program's file itself.
 - Removed: `kernel.json` (VibeSpace's download of the vendor's archive), `egress-proof.json` and its measuring script.
 - Unchanged: the fingerprint seed per profile (`seeds.json`) and the setting «Sites it may open».
-- Requires VibeSpace ≥ 2.369.371 <!-- set at publish: the first VibeSpace release whose browser engines run a program you name in a plugin's settings (the reserved executablePath setting) — the same version as engines.vibespace in vibespace-plugin.json -->
+- Requires VibeSpace ≥ 2.369.372 <!-- set at publish: the first VibeSpace release whose browser engines run a program you name in a plugin's settings (the reserved executablePath setting) — the same version as engines.vibespace in vibespace-plugin.json -->
 
 ## 0.1.0
 

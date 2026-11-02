@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "label": "CloakBrowser",
   "description": "CloakBrowser as a browser engine for VibeSpace's agent browser: a Chromium build that sites are less likely to block as a bot. You install CloakBrowser from its maker and paste the path of its program file into this plugin's settings; VibeSpace checks that program, measures its version and runs it inside an allowlisting proxy: it reaches only the sites you list. Not affiliated with CloakHQ: the browser is theirs, under https://github.com/CloakHQ/CloakBrowser/blob/main/BINARY-LICENSE.md",
-  "engines": { "vibespace": "2.369.371" },
+  "engines": { "vibespace": "2.369.372" },
   "client": "none",
   "server": true,
   "contributes": {
